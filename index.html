@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FROSTLINE — Frame 1</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #050b14; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// FROSTLINE / IRONHOLD — frame 1 (hero gameplay frame, gta6-01)
+// Single static frame, deterministic (seeded PRNG), no animation.
+// Logical coordinate space: 1024 x 1024. Canvas backing store = viewport * devicePixelRatio,
+// so a 200px viewport at dsf=4 renders the scene at 800x800 (SCALE=4 supersampling)
+// and a 1024px viewport at dsf=4 renders at 4096x4096.
+(function () {
+  'use strict';
+
+  // ---- seeded PRNG (mulberry32), fixed seed -> identical frame every run ----
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  var rnd = mulberry32(20261119);
+
+  var canvas = document.getElementById('game');
+  var W = 1024, H = 1024;
+  var dpr = window.devicePixelRatio || 1;
+  var vw = window.innerWidth, vh = window.innerHeight;
+  canvas.width = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
+  canvas.style.width = vw + 'px';
+  canvas.style.height = vh + 'px';
+  var ctx = canvas.getContext('2d');
+  var S = canvas.width / W; // logical -> device scale
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+
+  // ---- helpers (fill-only shapes; strokes kept <= 1.5px logical, no text stroke) ----
+  function rr(x, y, w, h, r) { // rounded rect path
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function fillCircle(x, y, r, color) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+  }
+  function star5(cx, cy, r, color) {
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var a = -Math.PI / 2 + i * Math.PI / 5;
+      var rad = (i % 2 === 0) ? r : r * 0.45;
+      var x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+  function glow(x, y, r, color, alpha) {
+    var g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color.replace('A', alpha.toFixed(2)));
+    g.addColorStop(1, color.replace('A', '0'));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ================= SKY =================
+  var sky = ctx.createLinearGradient(0, 0, 0, 470);
+  sky.addColorStop(0, '#071223');
+  sky.addColorStop(0.55, '#0E2242');
+  sky.addColorStop(1, '#16304F');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, 470);
+
+  // stars (seeded)
+  for (var i = 0; i < 110; i++) {
+    var sx = rnd() * W, sy = rnd() * 330, sr = 0.7 + rnd() * 1.6;
+    ctx.globalAlpha = 0.25 + rnd() * 0.65;
+    fillCircle(sx, sy, sr, '#EAF2FF');
+  }
+  ctx.globalAlpha = 1;
+
+  // (no moon: every clear sky slot collides with title/subtitle/HUD — stars + aurora carry the night)
+
+  // faint aurora bands (fill-only, very low alpha)
+  ctx.globalAlpha = 0.07; ctx.fillStyle = '#3FD9A4';
+  ctx.beginPath();
+  ctx.moveTo(0, 120); ctx.lineTo(420, 60); ctx.lineTo(560, 110); ctx.lineTo(140, 175); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // ================= INDUSTRIAL SKYLINE (rust-belt, y ~250-450) =================
+  ctx.fillStyle = '#0A1524';
+  ctx.fillRect(0, 330, 210, 120);            // factory block 1
+  ctx.fillRect(300, 352, 250, 98);           // factory block 2
+  ctx.fillRect(640, 340, 180, 110);          // factory block 3
+  ctx.fillRect(880, 360, 144, 90);           // factory block 4
+  // sawtooth roof on block 2
+  ctx.beginPath();
+  ctx.moveTo(300, 352);
+  for (var tx = 300; tx < 550; tx += 25) { ctx.lineTo(tx + 12, 330); ctx.lineTo(tx + 25, 352); }
+  ctx.lineTo(550, 352); ctx.closePath(); ctx.fill();
+  // smokestacks
+  ctx.fillRect(238, 250, 26, 200);
+  ctx.fillRect(596, 272, 22, 178);
+  ctx.fillRect(846, 292, 20, 158);
+  // stack rims (amber)
+  ctx.fillStyle = '#B4762A'; ctx.fillRect(236, 246, 30, 8); ctx.fillRect(594, 268, 26, 8); ctx.fillRect(844, 288, 24, 8);
+  // smoke puffs (soft circles, low alpha)
+  for (var s = 0; s < 14; s++) {
+    var px = 250 + (rnd() - 0.5) * 60 - s * 2, py = 240 - s * 9;
+    ctx.globalAlpha = 0.10 - s * 0.005;
+    fillCircle(px, py, 14 + s * 2.2, '#9FB2C4');
+  }
+  ctx.globalAlpha = 1;
+  // crane
+  ctx.fillStyle = '#0A1524';
+  ctx.fillRect(690, 220, 14, 230);
+  ctx.fillRect(690, 220, 190, 12);
+  ctx.fillRect(872, 232, 4, 44);
+  ctx.fillRect(866, 276, 16, 12);
+  // water tower
+  ctx.fillRect(80, 300, 8, 130); ctx.fillRect(150, 300, 8, 130);
+  ctx.beginPath(); ctx.ellipse(120, 292, 52, 30, 0, 0, Math.PI * 2); ctx.fillStyle = '#0A1524'; ctx.fill();
+  // amber windows (seeded, sparse)
+  for (var w = 0; w < 46; w++) {
+    var bx = [0, 300, 640, 880][Math.floor(rnd() * 4)];
+    var bw = [210, 250, 180, 144][Math.floor(rnd() * 4)];
+    ctx.globalAlpha = 0.55 + rnd() * 0.4;
+    ctx.fillStyle = '#FFB347';
+    ctx.fillRect(bx + 12 + rnd() * (bw - 24), 348 + rnd() * 82, 7, 9);
+  }
+  ctx.globalAlpha = 1;
+  // horizon streetlights (amber dots)
+  for (var l = 0; l < 9; l++) {
+    glow(60 + l * 112, 446, 16, 'rgba(255,179,71,A)', 0.55);
+    fillCircle(60 + l * 112, 446, 3, '#FFC46B');
+  }
+
+  // distant treeline / snow bank at horizon
+  ctx.fillStyle = '#0C1B2E';
+  ctx.beginPath(); ctx.moveTo(0, 452);
+  for (var hx = 0; hx <= W; hx += 64) { ctx.lineTo(hx, 446 + rnd() * 10); }
+  ctx.lineTo(W, 470); ctx.lineTo(0, 470); ctx.closePath(); ctx.fill();
+
+  // ================= FROZEN LAKE (y 450-1024) =================
+  var ice = ctx.createLinearGradient(0, 450, 0, H);
+  ice.addColorStop(0, '#C3DCEC');
+  ice.addColorStop(0.45, '#A9C8DD');
+  ice.addColorStop(1, '#7FA9C6');
+  ctx.fillStyle = ice; ctx.fillRect(0, 450, W, H - 450);
+  // darker blue patches (frozen depth)
+  for (var p = 0; p < 10; p++) {
+    ctx.globalAlpha = 0.07;
+    ctx.beginPath();
+    ctx.ellipse(rnd() * W, 500 + rnd() * 480, 90 + rnd() * 160, 26 + rnd() * 40, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#2E5A7D'; ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // light streaks on ice
+  for (var st = 0; st < 8; st++) {
+    ctx.globalAlpha = 0.05;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 520 + st * 62 + rnd() * 20, W, 10 + rnd() * 14);
+  }
+  ctx.globalAlpha = 1;
+  // ice cracks (thin, low alpha, fill-only polylines via narrow quads -> use 1.5px lines)
+  ctx.strokeStyle = 'rgba(90,130,165,0.55)';
+  ctx.lineWidth = 1.5;
+  for (var c = 0; c < 9; c++) {
+    var cx = rnd() * W, cy = 480 + rnd() * 480;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    var ang = rnd() * Math.PI * 2;
+    for (var seg = 0; seg < 4; seg++) {
+      ang += (rnd() - 0.5) * 1.1;
+      cx += Math.cos(ang) * (40 + rnd() * 70);
+      cy += Math.sin(ang) * (26 + rnd() * 46);
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+  // extra crack cluster in the open left field, so the frozen-lake hook reads at 200px
+  ctx.strokeStyle = 'rgba(70,110,145,0.65)';
+  ctx.lineWidth = 2;
+  for (var c2 = 0; c2 < 5; c2++) {
+    var cx2 = 60 + rnd() * 340, cy2 = 520 + rnd() * 380;
+    ctx.beginPath(); ctx.moveTo(cx2, cy2);
+    var ang2 = rnd() * Math.PI * 2;
+    for (var seg2 = 0; seg2 < 4; seg2++) {
+      ang2 += (rnd() - 0.5) * 1.0;
+      cx2 += Math.cos(ang2) * (36 + rnd() * 60);
+      cy2 += Math.sin(ang2) * (24 + rnd() * 40);
+      ctx.lineTo(cx2, cy2);
+    }
+    ctx.stroke();
+  }
+  // pressure ridges (pale, low alpha) across the open ice
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(40, 620);
+  ctx.lineTo(180, 600); ctx.lineTo(320, 626); ctx.lineTo(430, 606);
+  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(90, 880);
+  ctx.lineTo(230, 856); ctx.lineTo(360, 884);
+  ctx.stroke();
+
+  // ================= ICE ROAD (diagonal, bottom-left -> mid-right) =================
+  // road polygon: near edge (70,1024)-(330,1024), far edge (742,592)-(812,592)
+  ctx.fillStyle = '#232A31';
+  ctx.beginPath();
+  ctx.moveTo(70, 1024); ctx.lineTo(330, 1024); ctx.lineTo(812, 592); ctx.lineTo(742, 592);
+  ctx.closePath(); ctx.fill();
+  // snow banks along road edges (fill-only)
+  ctx.fillStyle = 'rgba(226,238,247,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(70, 1024); ctx.lineTo(742, 592); ctx.lineTo(726, 584); ctx.lineTo(48, 1024);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(330, 1024); ctx.lineTo(812, 592); ctx.lineTo(830, 600); ctx.lineTo(356, 1024);
+  ctx.closePath(); ctx.fill();
+  // tire tracks (two darker quads along the road)
+  ctx.fillStyle = '#171D22';
+  ctx.beginPath();
+  ctx.moveTo(150, 1024); ctx.lineTo(258, 1024); ctx.lineTo(772, 592); ctx.lineTo(756, 592);
+  ctx.closePath(); ctx.fill();
+  // center dashes (amber, worn) — interpolated along centerline (200,1024)->(777,592)
+  ctx.fillStyle = 'rgba(201,162,39,0.75)';
+  for (var d = 0; d < 7; d++) {
+    var t = 0.08 + d * 0.13;
+    var dx = 200 + (777 - 200) * t, dy = 1024 + (592 - 1024) * t;
+    var dw = 26 - t * 16;
+    ctx.save(); ctx.translate(dx, dy); ctx.rotate(-0.94);
+    ctx.fillRect(-dw / 2, -3, dw, 6);
+    ctx.restore();
+  }
+
+  // ================= VEHICLES (convoy + police chase) =================
+  function drawCar(x, y, sc, body, opts) {
+    // opts: {lights:'amber'|'police', beam:true}
+    ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+    // shadow on ice
+    ctx.globalAlpha = 0.28; ctx.fillStyle = '#0A1A28';
+    ctx.beginPath(); ctx.ellipse(0, 16, 62, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // headlight beams (forward = up-road, -y rotated slightly)
+    if (opts.beam) {
+      ctx.globalAlpha = 0.13; ctx.fillStyle = '#FFD98A';
+      ctx.beginPath(); ctx.moveTo(-34, -14); ctx.lineTo(-70, -120); ctx.lineTo(-8, -120); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(34, -14); ctx.lineTo(8, -120); ctx.lineTo(70, -120); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // body
+    ctx.fillStyle = body;
+    rr(-58, -18, 116, 30, 9); ctx.fill();
+    // cabin
+    ctx.fillStyle = 'rgba(16,28,40,0.92)';
+    rr(-30, -34, 56, 22, 7); ctx.fill();
+    // windshield glint
+    ctx.fillStyle = 'rgba(190,220,240,0.5)';
+    rr(-26, -32, 48, 7, 3); ctx.fill();
+    // wheels
+    ctx.fillStyle = '#0B0E11';
+    fillCircle(-34, 12, 10, '#0B0E11'); fillCircle(34, 12, 10, '#0B0E11');
+    ctx.fillStyle = '#5A6672';
+    fillCircle(-34, 12, 4, '#5A6672'); fillCircle(34, 12, 4, '#5A6672');
+    // headlights / taillights
+    ctx.fillStyle = '#FFE9A8'; fillCircle(-46, -8, 4, '#FFE9A8'); fillCircle(46, -8, 4, '#FFE9A8');
+    ctx.fillStyle = '#FF3B30'; fillCircle(-52, 8, 3, '#FF3B30'); fillCircle(52, 8, 3, '#FF3B30');
+    // police light bar
+    if (opts.lights === 'police') {
+      ctx.fillStyle = '#0B0E11'; rr(-16, -40, 32, 8, 3); ctx.fill();
+      glow(-8, -36, 34, 'rgba(255,59,48,A)', 0.85);
+      glow(8, -36, 34, 'rgba(46,124,246,A)', 0.85);
+      fillCircle(-8, -36, 6, '#FF3B30'); fillCircle(8, -36, 6, '#2E7CF6');
+      // light wash on ice
+      glow(-8, 26, 70, 'rgba(255,59,48,A)', 0.30);
+      glow(8, 26, 70, 'rgba(46,124,246,A)', 0.30);
+    }
+    if (opts.lights === 'amber') {
+      glow(0, -20, 40, 'rgba(255,179,71,A)', 0.35);
+      ctx.fillStyle = '#FFB347'; fillCircle(-20, -20, 3, '#FFB347'); fillCircle(20, -20, 3, '#FFB347');
+    }
+    ctx.restore();
+  }
+
+  // smuggler truck (cargo box) — mid road
+  ctx.save(); ctx.translate(585, 712); ctx.scale(1.15, 1.15);
+  ctx.globalAlpha = 0.28; ctx.fillStyle = '#0A1A28';
+  ctx.beginPath(); ctx.ellipse(0, 20, 78, 14, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#2C4A55'; rr(-72, -52, 96, 58, 6); ctx.fill();      // cargo box
+  ctx.fillStyle = '#1F3A44'; rr(24, -40, 48, 46, 8); ctx.fill();        // cab
+  ctx.fillStyle = 'rgba(190,220,240,0.5)'; rr(30, -38, 36, 12, 3); ctx.fill();
+  ctx.fillStyle = '#0B0E11';
+  fillCircle(-48, 6, 11, '#0B0E11'); fillCircle(-8, 6, 11, '#0B0E11'); fillCircle(56, 6, 11, '#0B0E11');
+  ctx.fillStyle = '#FFE9A8'; fillCircle(70, -28, 4, '#FFE9A8');
+  ctx.fillStyle = '#FF3B30'; fillCircle(-70, -44, 3, '#FF3B30');
+  glow(0, -30, 46, 'rgba(255,179,71,A)', 0.30);
+  ctx.restore();
+  // truck headlight beam
+  ctx.globalAlpha = 0.10; ctx.fillStyle = '#FFD98A';
+  ctx.beginPath(); ctx.moveTo(640, 690); ctx.lineTo(700, 560); ctx.lineTo(760, 560); ctx.lineTo(690, 690); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // sedan ahead (lead car)
+  drawCar(726, 636, 0.82, '#22364A', { lights: 'amber', beam: true });
+  // police cars behind
+  drawCar(452, 806, 1.0, '#E8EDF2', { lights: 'police', beam: true });
+  drawCar(318, 912, 1.18, '#D7DEE6', { lights: 'police', beam: true });
+
+  // red/blue reflections streaking on the ice under the chase
+  ctx.globalAlpha = 0.10; ctx.fillStyle = '#FF3B30';
+  ctx.beginPath(); ctx.ellipse(430, 880, 90, 16, -0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2E7CF6';
+  ctx.beginPath(); ctx.ellipse(350, 950, 110, 18, -0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // ================= SNOWFALL =================
+  for (var f = 0; f < 150; f++) {
+    var fx = rnd() * W, fy = rnd() * H, fr = 0.9 + rnd() * 2.2;
+    ctx.globalAlpha = 0.3 + rnd() * 0.6;
+    fillCircle(fx, fy, fr, '#FFFFFF');
+  }
+  ctx.globalAlpha = 1;
+
+  // ================= VIGNETTE =================
+  var vg = ctx.createRadialGradient(512, 512, 320, 512, 512, 760);
+  vg.addColorStop(0, 'rgba(4,10,20,0)');
+  vg.addColorStop(1, 'rgba(4,10,20,0.38)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  // ================= TITLE BLOCK (top, most dominant element) =================
+  // dark gradient band behind title only (fill-only, no stroke)
+  var tb = ctx.createLinearGradient(0, 0, 0, 210);
+  tb.addColorStop(0, 'rgba(4,10,20,0.62)');
+  tb.addColorStop(1, 'rgba(4,10,20,0)');
+  ctx.fillStyle = tb; ctx.fillRect(0, 0, W, 210);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // title — 118px @1024, the single most dominant element
+  ctx.fillStyle = '#F4F8FF';
+  ctx.font = '900 118px "Arial Black", "DejaVu Sans", sans-serif';
+  try { ctx.letterSpacing = '6px'; } catch (e) {}
+  ctx.fillText('FROSTLINE', 512, 96);
+  // amber rule under title (fill-only)
+  ctx.fillStyle = '#FFB347';
+  ctx.fillRect(362, 158, 300, 7);
+  // subtitle with date — 32px @1024
+  ctx.fillStyle = '#FFC46B';
+  ctx.font = '600 32px "DejaVu Sans", sans-serif';
+  try { ctx.letterSpacing = '5px'; } catch (e) {}
+  ctx.fillText('IRONHOLD · 19 NOVEMBER 2026', 512, 192);
+
+  // ================= HUD =================
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  // top-left: cash + health + mission
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '900 36px "DejaVu Sans", sans-serif';
+  ctx.fillText('$1,240', 28, 268);
+  ctx.fillStyle = 'rgba(4,10,20,0.55)'; rr(28, 282, 150, 12, 6); ctx.fill();
+  ctx.fillStyle = '#37C978'; rr(28, 282, 117, 12, 6); ctx.fill();
+  ctx.fillStyle = '#FFC46B';
+  ctx.font = '700 20px "DejaVu Sans", sans-serif';
+  try { ctx.letterSpacing = '2px'; } catch (e) {}
+  ctx.fillText('MISSION: ICE-ROAD RUN', 28, 326);
+  // top-right: wanted stars
+  ctx.fillStyle = '#FFC93C';
+  ctx.font = '700 17px "DejaVu Sans", sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('WANTED', 996, 252);
+  star5(916, 282, 15, '#FFC93C');
+  star5(950, 282, 15, '#FFC93C');
+  star5(984, 282, 15, '#FFC93C');
+  ctx.textAlign = 'left';
+  // bottom-left: speed
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '900 62px "DejaVu Sans", sans-serif';
+  ctx.fillText('87', 28, 986);
+  ctx.font = '700 22px "DejaVu Sans", sans-serif';
+  ctx.fillStyle = '#BFD4E6';
+  ctx.fillText('MPH', 108, 986);
+  ctx.fillStyle = '#8FA9BE';
+  ctx.font = '700 18px "DejaVu Sans", sans-serif';
+  ctx.fillText('ICE ROAD', 28, 912);
+  // bottom-right: minimap
+  var mx = 922, my = 918, mr = 82;
+  ctx.fillStyle = 'rgba(5,12,24,0.82)';
+  ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#3A5A7A'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.stroke();
+  // minimap ice + road
+  ctx.save();
+  ctx.beginPath(); ctx.arc(mx, my, mr - 4, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = '#8FB4CC'; ctx.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
+  ctx.strokeStyle = '#FFC46B'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(mx - 58, my + 62); ctx.lineTo(mx + 52, my - 58); ctx.stroke();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath(); ctx.moveTo(mx + 6, my - 6); ctx.lineTo(mx - 6, my + 8); ctx.lineTo(mx + 10, my + 8); ctx.closePath(); ctx.fill();
+  fillCircle(mx - 26, my + 26, 5, '#FF3B30');
+  fillCircle(mx - 44, my + 44, 5, '#2E7CF6');
+  ctx.fillStyle = '#BFD4E6'; ctx.font = '700 15px "DejaVu Sans", sans-serif';
+  ctx.fillText('N', mx - 5, my - mr + 20);
+  ctx.restore();
+
+  // done — single static frame
+  document.title = 'FROSTLINE frame 1 rendered';
+})();
+</script>
+</body>
+</html>
